@@ -1,147 +1,298 @@
 <!doctype html>
+<html lang="es">
+<head>
 <meta charset="utf-8">
-<title>Verb-Subject Colorizer — minimal</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verb-Subject Colorizer (Paco rules)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
-  body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:20px;background:#fafafa}
-  textarea{width:100%;min-height:140px;padding:10px;border:1px solid #ccc;border-radius:8px;resize:vertical}
-  .row{margin:10px 0;display:flex;gap:8px;flex-wrap:wrap}
-  .box{background:#fff;border:1px solid #ddd;border-radius:10px;padding:12px}
-  #out{min-height:100px;line-height:1.7;font-size:18px}
-  .yo{color:red}.tu{color:blue}.el{color:goldenrod}.nos{color:purple}.ellos{color:green}.shared{color:orange}
-  noscript{color:#b00020;font-weight:700}
+  :root{ --yo:red; --tu:blue; --el:goldenrod; --nos:purple; --ellos:green; --shared:orange; }
+  body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;background:#f7f7fb}
+  header{padding:20px 24px;background:#111;color:#fff}
+  main{max-width:980px;margin:24px auto;padding:0 16px 48px}
+  h1{font-size:20px;margin:0 0 6px}
+  .card{background:#fff;border:1px solid #e7e7ee;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.05);padding:16px}
+  textarea{width:100%;min-height:180px;padding:12px;font:16px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;border:1px solid #d9d9e3;border-radius:10px;resize:vertical}
+  button{appearance:none;border:0;background:#111;color:#fff;padding:10px 14px;border-radius:12px;cursor:pointer;font-weight:600}
+  button.secondary{background:#ececf1;color:#111}
+  .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:12px}
+  .preview{padding:16px;border:1px solid #d9d9e3;border-radius:12px;background:#fff;min-height:120px;font-size:18px;line-height:1.75}
+  .legend{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 6px}
+  .chip{border-radius:999px;padding:4px 10px;font-size:13px;border:1px solid #ddd;background:#fff}
+  .muted{color:#666;font-size:13px}
+  .small{font-size:12px}
 </style>
+</head>
+<body>
+<header>
+  <h1>Verb-Subject Colorizer</h1>
+  <div class="small">Spanish person-marker highlighter using Paco’s “almost-always endings”. Runs entirely in your browser.</div>
+</header>
+<main>
+  <div class="card">
+    <div class="legend">
+      <div class="chip"><b style="color:var(--yo)">yo</b> red</div>
+      <div class="chip"><b style="color:var(--tu)">tú</b> blue</div>
+      <div class="chip"><b style="color:var(--el)">él/ella/Ud.</b> yellow</div>
+      <div class="chip"><b style="color:var(--nos)">nosotros</b> purple</div>
+      <div class="chip"><b style="color:var(--ellos)">ellos/Uds.</b> green</div>
+      <div class="chip"><b style="color:var(--shared)">yo = 3rd (shared)</b> orange</div>
+    </div>
 
-<h1>Verb-Subject Colorizer (minimal)</h1>
-<noscript>JavaScript is disabled — enable it to use this page.</noscript>
+    <label for="in" class="muted">Paste Spanish text:</label>
+    <textarea id="in" placeholder="Yo hablo... Voy a hablar; estoy hablando... He comido; Has vivido..."></textarea>
 
-<div class="box">
-  <div class="row">
-    <button onclick="alert('JS works ✅');">Test JS</button>
-    <button onclick="run()">Colorize</button>
-    <button onclick="downloadHTML()">Download HTML</button>
+    <div class="row">
+      <button id="run">Colorize</button>
+      <button class="secondary" id="download">Download HTML</button>
+      <span class="muted small">
+        voy/estoy → only <b>oy</b> • he/has/ha/hemos/han → color only after silent <b>h</b> (hemos → <b>mos</b>) • future only on infinitives.
+      </span>
+    </div>
   </div>
-  <textarea id="in">Yo hablo. Tú hablas. Ella habla. Nosotros hablamos. Ustedes hablan.
-Voy a hablar; estoy hablando.
-He comido; Has vivido; Ha hablado; Hemos pensado; Han dormido.
-Ayer hablé, hablaste, habló, hablamos, hablaron. Antes, hablaba y comía; tú vivías; nosotros vivíamos; ellos vivían.
-El camino es largo, pero yo camino rápido.</textarea>
-</div>
 
-<div class="box" style="margin-top:12px">
-  <div><b>Preview:</b></div>
-  <div id="out"></div>
-</div>
+  <div style="height:14px"></div>
+
+  <div class="card">
+    <div class="muted">Preview:</div>
+    <div id="out" class="preview"></div>
+  </div>
+</main>
 
 <script>
-  // --- tiny helpers (no modern regex) ---
-  function esc(s){return s.replace(/[&<>"]/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[m]));}
-  function isLetter(ch){return ch.toLowerCase()!==ch.toUpperCase();}
-  function isWord(tok){if(!tok) return false; for(let i=0;i<tok.length;i++) if(!isLetter(tok[i])) return false; return true;}
+/* ================== helpers ================== */
+const COLORS = { yo:'var(--yo)', tu:'var(--tu)', el:'var(--el)', nos:'var(--nos)', ellos:'var(--ellos)', shared:'var(--shared)' };
 
-  // tokenization that keeps spaces/punct
-  function tokenize(s){
-    const out=[], n=s.length; let cur='';
-    for(let i=0;i<n;i++){
-      const ch=s[i];
-      if(isLetter(ch)) cur+=ch; else { if(cur){out.push(cur);cur='';} out.push(ch); }
+const DET = new Set([
+  "el","la","los","las","lo","un","una","unos","unas","al","del",
+  "mi","mis","tu","tus","su","sus","nuestro","nuestra","nuestros","nuestras",
+  "este","esta","estos","estas","ese","esa","esos","esas","aquel","aquella","aquellos","aquellas"
+]);
+
+// auxiliaries
+const ESTAR = new Set(["estoy","estas","estás","esta","está","estamos","estan","están"]);
+const IR     = new Set(["voy","vas","va","vamos","van"]);
+const HABER  = new Set(["he","has","ha","hemos","han"]);
+
+// exceptions for common non-verbs that look like verbs
+const NON_VERB_EXCEPTIONS = new Set(["días","dias"]);
+
+function esc(s){return s.replace(/[&<>"]/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[m]));}
+function isLetter(ch){return ch.toLowerCase()!==ch.toUpperCase();}
+function isWord(tok){if(!tok) return false; for(let i=0;i<tok.length;i++) if(!isLetter(tok[i])) return false; return true;}
+function tokenize(s){
+  const out=[], n=s.length; let cur='';
+  for(let i=0;i<n;i++){ const ch=s[i]; if(isLetter(ch)) cur+=ch; else { if(cur){out.push(cur);cur='';} out.push(ch); } }
+  if(cur) out.push(cur); return out;
+}
+function span(color, text){ return `<span style="color:${color};">${esc(text)}</span>`; }
+function isInfinitiveBase(base){ base=base.toLowerCase(); return base.endsWith("ar")||base.endsWith("er")||base.endsWith("ir"); }
+
+/* ================== verb gate ================== */
+function looksLikeVerb(tokens,i){
+  const tok = tokens[i];
+  const low = tok.toLowerCase();
+
+  if (NON_VERB_EXCEPTIONS.has(low)) return false;                 // skip known non-verbs
+  if (!isWord(tok)) return false;                                  // must be a word
+  if (ESTAR.has(low) || IR.has(low) || HABER.has(low)) return true;// auxiliaries always pass
+
+  // article guard: this token or the previous token is an article → not a verb
+  if (/^un(a|os|as)?$/i.test(low)) return false;
+  if (i>0 && /^un(a|os|as)?$/i.test(tokens[i-1].toLowerCase())) return false;
+
+  // determiner guard (e.g., "el camino")
+  if (i>0 && DET.has(tokens[i-1].toLowerCase())) return false;
+
+  // endings
+  const presAR   = ["o","as","a","amos","an"];
+  const presER   = ["o","es","e","emos","en"];
+  const presIR   = ["o","es","e","imos","en"];
+  const pretAR   = ["é","aste","ó","amos","aron"];
+  const pretERIR = ["í","iste","ió","imos","ieron"];
+  const impAR    = ["aba","abas","aba","ábamos","aban"];
+  const impERIR  = ["ía","ías","ía","íamos","ían"];
+  const fut      = ["é","ás","á","emos","án"];   // future (infinitive + ending)
+  const cond     = ["ía","ías","ía","íamos","ían"]; // conditional (infinitive + ending)
+
+  // future/conditional: require infinitive base
+  for (const end of [...new Set([...fut,...cond])].sort((a,b)=>b.length-a.length)){
+    if (low.endsWith(end)){
+      const base = low.slice(0,-end.length);
+      if (isInfinitiveBase(base)) return true;
     }
-    if(cur) out.push(cur);
-    return out;
   }
 
-  // extremely small “verb gate”
-  const DET = new Set(["el","la","los","las","lo","un","una","unos","unas","al","del","mi","mis","tu","tus","su","sus"]);
-  const ESTAR = new Set(["estoy","estas","estás","esta","está","estamos","estan","están"]);
-  const IR = new Set(["voy","vas","va","vamos","van"]);
-  const HABER = new Set(["he","has","ha","hemos","han"]);
+  const ends = a=>a.some(e=>low.endsWith(e));
+  if (ends([...presAR,...presER,...presIR])) return true;
+  if (ends([...pretAR,...pretERIR])) return true;
+  if (ends([...impAR,...impERIR])) return true;
 
-  function looksLikeVerb(tokens,i){
-    const t=tokens[i].toLowerCase();
-    if(ESTAR.has(t)||IR.has(t)||HABER.has(t)) return true;
-    if(i>0 && DET.has(tokens[i-1].toLowerCase())) return false;
-    const ends = ["o","as","a","amos","an","es","e","emos","en","imos","é","aste","ó","amos","aron","í","iste","ió","imos","ieron","aba","abas","aban","ía","ías","ían"];
-    for(const e of ends){ if(t.endsWith(e) && isWord(tokens[i])) return true; }
-    return false;
+  // small context boosts: negation or explicit subject before
+  if (i>0){
+    const prev = tokens[i-1].toLowerCase();
+    if (prev==="no"||prev==="nunca"||prev==="jamás") return true;
+    if (/^(yo|tú|tu|él|ella|usted|nosotros|nosotras|ustedes|ellos|ellas)$/i.test(prev)) return true;
   }
 
-  // color only the person marker (Paco rules) — simplified but correct for your use cases
-  function colorToken(tok){
-    const low=tok.toLowerCase();
+  return false;
+}
 
-    // present perfect: color only after silent h
-    if(HABER.has(low)){
-      const map={he:["yo","e"],has:["tu","as"],ha:["el","a"],hemos:["nos","emos"],han:["ellos","an"]};
-      const m=map[low]; if(m){const part=m[1],who=m[0]; const idx=low.lastIndexOf(part);
-        return esc(tok.slice(0,idx)) + `<span class="${who}">`+esc(tok.slice(idx))+'</span>'; }
+/* ================== coloring ================== */
+function colorHaber(tok){
+  const low = tok.toLowerCase();
+  const map = {
+    he:    ["yo","e"],
+    has:   ["tu","as"],
+    ha:    ["el","a"],
+    hemos: ["nos","mos"],   // only 'mos', not 'emos'
+    han:   ["ellos","an"]
+  };
+  const m = map[low];
+  if (!m) return esc(tok);
+  const [who, part] = m;
+  const idx = low.lastIndexOf(part);
+  return esc(tok.slice(0, idx)) + span(COLORS[who], tok.slice(idx));
+}
 
+function colorEstar(tok){
+  const low = tok.toLowerCase();
+  if (low==="estoy"){
+    const idx = low.lastIndexOf("oy");
+    return esc(tok.slice(0, idx)) + span(COLORS.yo, tok.slice(idx));
+  }
+  if (low.endsWith("amos")) return esc(tok.slice(0,-4)) + span(COLORS.nos, tok.slice(-4)); // -mos first
+  if (low.endsWith("án"))   return esc(tok.slice(0,-1)) + span(COLORS.ellos, tok.slice(-1));
+  if (low.endsWith("ás"))   return esc(tok.slice(0,-1)) + span(COLORS.tu, tok.slice(-1));
+  if (low.endsWith("á"))    return esc(tok.slice(0,-1)) + span(COLORS.el, tok.slice(-1));
+  return esc(tok);
+}
+
+function colorIr(tok){
+  const low = tok.toLowerCase();
+  if (low==="voy"){
+    const idx = low.lastIndexOf("oy");
+    return esc(tok.slice(0, idx)) + span(COLORS.yo, tok.slice(idx));
+  }
+  if (low.endsWith("mos")) return esc(tok.slice(0,-3)) + span(COLORS.nos, tok.slice(-3)); // -mos before -s
+  if (low.endsWith("s"))   return esc(tok.slice(0,-1)) + span(COLORS.tu, tok.slice(-1));
+  if (low.endsWith("a"))   return esc(tok.slice(0,-1)) + span(COLORS.el, tok.slice(-1));
+  if (low.endsWith("n"))   return esc(tok.slice(0,-1)) + span(COLORS.ellos, tok.slice(-1));
+  return esc(tok);
+}
+
+function colorFutureConditional(tok){
+  const low = tok.toLowerCase();
+  const patterns = [
+    ["íamos","nos"],["remos","nos"],["ríamos","nos"],
+    ["ían","ellos"],["rán","ellos"],
+    ["ías","tu"],["rás","tu"],
+    ["ía","shared"],["rá","el"],["é","yo"],["á","el"]
+  ];
+  for (const [end, who] of patterns){
+    if (low.endsWith(end)){
+      const base = tok.slice(0, tok.length - end.length);
+      if (isInfinitiveBase(base)){
+        const color = COLORS[who==="shared" ? "shared" : who];
+        return esc(base) + span(color, tok.slice(-end.length));
+      }
     }
-
-    // estar + gerund: estoy -> only 'oy'; demás persona normal
-    if(ESTAR.has(low)){
-      if(low==="estoy"){const idx=tok.toLowerCase().lastIndexOf("oy"); return esc(tok.slice(0,idx))+`<span class="yo">`+esc(tok.slice(idx))+'</span>';}
-      if(low.endsWith("ás")) return esc(tok.slice(0,-1))+`<span class="tu">`+esc(tok.slice(-1))+'</span>';
-      if(low.endsWith("á"))  return esc(tok.slice(0,-1))+`<span class="el">`+esc(tok.slice(-1))+'</span>';
-      if(low.endsWith("amos"))return esc(tok.slice(0,-4))+`<span class="nos">`+esc(tok.slice(-4))+'</span>';
-      if(low.endsWith("án")) return esc(tok.slice(0,-1))+`<span class="ellos">`+esc(tok.slice(-1))+'</span>';
-    }
-
-    // ir a: voy -> only 'oy'; demás persona normal
-    if(IR.has(low)){
-      if(low==="voy"){const idx=tok.toLowerCase().lastIndexOf("oy"); return esc(tok.slice(0,idx))+`<span class="yo">`+esc(tok.slice(idx))+'</span>';}
-      if(low.endsWith("s")) return esc(tok.slice(0,-1))+`<span class="tu">`+esc(tok.slice(-1))+'</span>';
-      if(low.endsWith("a")) return esc(tok.slice(0,-1))+`<span class="el">`+esc(tok.slice(-1))+'</span>';
-      if(low.endsWith("mos")) return esc(tok.slice(0,-3))+`<span class="nos">`+esc(tok.slice(-3))+'</span>';
-      if(low.endsWith("n")) return esc(tok.slice(0,-1))+`<span class="ellos">`+esc(tok.slice(-1))+'</span>';
-    }
-
-    // imperfect shared yo=3rd → orange
-    if(low.endsWith("ábamos")||low.endsWith("íamos")) return esc(tok.slice(0,-4))+`<span class="nos">`+esc(tok.slice(-4))+'</span>';
-    if(low.endsWith("aban")||low.endsWith("ían"))     return esc(tok.slice(0,-2))+`<span class="ellos">`+esc(tok.slice(-2))+'</span>';
-    if(low.endsWith("abas")||low.endsWith("ías"))     return esc(tok.slice(0,-2))+`<span class="tu">`+esc(tok.slice(-2))+'</span>';
-    if(low.endsWith("aba"))                           return esc(tok.slice(0,-3))+`<span class="shared">`+esc(tok.slice(-3))+'</span>';
-    if(low.endsWith("ía"))                            return esc(tok.slice(0,-2))+`<span class="shared">`+esc(tok.slice(-2))+'</span>';
-
-    // preterite regular
-    if(low.endsWith("é"))                             return esc(tok.slice(0,-1))+`<span class="yo">`+esc(tok.slice(-1))+'</span>';
-    if(low.endsWith("aste")||low.endsWith("iste"))    return esc(tok.slice(0,-4))+`<span class="tu">`+esc(tok.slice(-4))+'</span>';
-    if(low.endsWith("ó"))                             return esc(tok.slice(0,-1))+`<span class="el">`+esc(tok.slice(-1))+'</span>';
-    if(low.endsWith("amos")||low.endsWith("imos"))    return esc(tok.slice(0,-4))+`<span class="nos">`+esc(tok.slice(-4))+'</span>';
-    if(low.endsWith("aron")||low.endsWith("ieron"))   return esc(tok.slice(0,-3))+`<span class="ellos">`+esc(tok.slice(-3))+'</span>';
-
-    // present default
-    if(low.endsWith("amos")||low.endsWith("emos")||low.endsWith("imos")) return esc(tok.slice(0,-4))+`<span class="nos">`+esc(tok.slice(-4))+'</span>';
-    if(low.endsWith("an")||low.endsWith("en"))        return esc(tok.slice(0,-1))+`<span class="ellos">`+esc(tok.slice(-1))+'</span>';
-    if(low.endsWith("as")||low.endsWith("es"))        return esc(tok.slice(0,-1))+`<span class="tu">`+esc(tok.slice(-1))+'</span>';
-    if(low.endsWith("a")||low.endsWith("e"))          return esc(tok.slice(0,-1))+`<span class="el">`+esc(tok.slice(-1))+'</span>';
-    if(low.endsWith("o"))                             return esc(tok.slice(0,-1))+`<span class="yo">`+esc(tok.slice(-1))+'</span>';
-
-    return esc(tok);
   }
+  return null;
+}
 
-  function colorize(s){
-    const tks=tokenize(s), out=[];
-    for(let i=0;i<tks.length;i++){
-      const t=tks[i];
-      if(isWord(t) && looksLikeVerb(tks,i)) out.push(colorToken(t));
-      else out.push(esc(t));
-    }
-    return out.join('');
+function colorImperfect(tok){
+  const low = tok.toLowerCase();
+  if (low.endsWith("ábamos")||low.endsWith("íamos"))
+    return esc(tok.slice(0,-4)) + span(COLORS.nos, tok.slice(-4));
+  if (low.endsWith("aban")||low.endsWith("ían"))
+    return esc(tok.slice(0,-2)) + span(COLORS.ellos, tok.slice(-2));
+  if (low.endsWith("abas")||low.endsWith("ías")) // <- includes -ías for tú
+    return esc(tok.slice(0,-2)) + span(COLORS.tu, tok.slice(-2));
+  if (low.endsWith("aba"))
+    return esc(tok.slice(0,-3)) + span(COLORS.shared, tok.slice(-3)); // yo=3rd shared
+  if (low.endsWith("ía"))
+    return esc(tok.slice(0,-2)) + span(COLORS.shared, tok.slice(-2));
+  return null;
+}
+
+function colorPreterite(tok){
+  const low = tok.toLowerCase();
+  if (low.endsWith("é"))
+    return esc(tok.slice(0,-1)) + span(COLORS.yo, tok.slice(-1));
+  if (low.endsWith("aste")||low.endsWith("iste"))
+    return esc(tok.slice(0,-4)) + span(COLORS.tu, tok.slice(-4));
+  if (low.endsWith("ó"))
+    return esc(tok.slice(0,-1)) + span(COLORS.el, tok.slice(-1));
+  if (low.endsWith("amos")||low.endsWith("imos"))
+    return esc(tok.slice(0,-4)) + span(COLORS.nos, tok.slice(-4));
+  if (low.endsWith("aron")||low.endsWith("ieron"))
+    return esc(tok.slice(0,-3)) + span(COLORS.ellos, tok.slice(-3));
+  return null;
+}
+
+function colorPresent(tok){
+  const low = tok.toLowerCase();
+  if (low.endsWith("amos")||low.endsWith("emos")||low.endsWith("imos"))
+    return esc(tok.slice(0,-4)) + span(COLORS.nos, tok.slice(-4));
+  if (low.endsWith("an")||low.endsWith("en"))
+    return esc(tok.slice(0,-1)) + span(COLORS.ellos, tok.slice(-1));
+  if (low.endsWith("as")||low.endsWith("es"))
+    return esc(tok.slice(0,-1)) + span(COLORS.tu, tok.slice(-1));
+  if (low.endsWith("a")||low.endsWith("e"))
+    return esc(tok.slice(0,-1)) + span(COLORS.el, tok.slice(-1));
+  if (low.endsWith("o"))
+    return esc(tok.slice(0,-1)) + span(COLORS.yo, tok.slice(-1));
+  return null;
+}
+
+function colorToken(tokens, i){
+  const tok = tokens[i];
+  const low = tok.toLowerCase();
+
+  if (HABER.has(low))  return colorHaber(tok);
+  if (ESTAR.has(low))  return colorEstar(tok);
+  if (IR.has(low))     return colorIr(tok);
+
+  const fc = colorFutureConditional(tok); if (fc) return fc;
+  const imp = colorImperfect(tok);         if (imp) return imp;
+  const pret = colorPreterite(tok);        if (pret) return pret;
+  const pres = colorPresent(tok);          if (pres) return pres;
+
+  return esc(tok);
+}
+
+/* ================== pipeline & UI ================== */
+function colorize(text){
+  const toks = tokenize(text);
+  const out = [];
+  for (let i=0;i<toks.length;i++){
+    const t = toks[i];
+    if (isWord(t) && looksLikeVerb(toks, i)) out.push(colorToken(toks, i));
+    else out.push(esc(t));
   }
+  return out.join('');
+}
 
-  function run(){
-    const src=document.getElementById('in').value;
-    document.getElementById('out').innerHTML = colorize(src);
-  }
+const input = document.getElementById('in');
+const out   = document.getElementById('out');
 
-  function downloadHTML(){
-    const html='<!doctype html><meta charset="utf-8"><div style="font-family:serif;font-size:18px;line-height:1.7">'+
-      document.getElementById('out').innerHTML+'</div>';
-    const blob=new Blob([html],{type:'text/html;charset=utf-8'});
-    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='colorized.html'; a.click();
-    URL.revokeObjectURL(a.href);
-  }
+document.getElementById('run').addEventListener('click', ()=>{
+  out.innerHTML = colorize(input.value);
+});
 
-  // initial preview
-  run();
+document.getElementById('download').addEventListener('click', ()=>{
+  const html = `<!doctype html><meta charset="utf-8"><title>Colorized</title><div style="font-family:serif;font-size:18px;line-height:1.75">${colorize(input.value)}</div>`;
+  const blob = new Blob([html], {type:'text/html;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'colorized.html';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+// starter example
+input.value = "Yo hablo. Tú hablas. Ella habla. Nosotros hablamos. Ustedes hablan.\nVoy a hablar; estoy hablando. Vamos a comer.\nHe comido; Has vivido; Ha hablado; Hemos pensado; Han dormido.\nAyer hablé, hablaste, habló, hablamos, hablaron. Antes, hablaba y comía; tú vivías; nosotros vivíamos; ellos vivían.\nMañana hablarás; venderé; partirán; cantaremos.\nUn nativo dice: 'unos días de descanso'.";
+out.innerHTML = colorize(input.value);
 </script>
+</body>
+</html>
