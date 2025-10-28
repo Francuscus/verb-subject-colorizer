@@ -82,4 +82,164 @@ function isNeg(tok){ const t=tok.toLowerCase(); return t==="no"||t==="nunca"||t=
 
 /* ======= verb detection ======= */
 function looksLikeFiniteVerb(tokens, i){
-  const tok = t
+  const tok = tokens[i], low = tok.toLowerCase();
+
+  if (ESTAR.has(low) || IR.has(low) || HABER.has(low)) return true;
+  if (!isWord(tok)) return false;
+  if (i>0 && isDet(tokens[i-1])) return false;
+
+  const presAR = ["o","as","a","amos","an"];
+  const presER = ["o","es","e","emos","en"];
+  const presIR = ["o","es","e","imos","en"];
+  const pretAR = ["é","aste","ó","amos","aron"];
+  const pretERIR = ["í","iste","ió","imos","ieron"];
+  const impAR = ["aba","abas","aba","ábamos","aban"];
+  const impERIR = ["ía","ías","ía","íamos","ían"];
+  const fut = ["é","ás","á","emos","án"];
+  const cond = ["ía","ías","ía","íamos","ían"];
+
+  // future/conditional: infinitive + ending
+  for (const end of [...new Set([...fut,...cond])].sort((a,b)=>b.length-a.length)){
+    if (low.endsWith(end)){
+      const base = low.slice(0,-end.length);
+      if (base.endsWith("ar")||base.endsWith("er")||base.endsWith("ir")) return true;
+    }
+  }
+
+  const ends = a=>a.some(e=>low.endsWith(e));
+  if (ends([...presAR,...presER,...presIR])) return true;
+  if (ends([...pretAR,...pretERIR])) return true;
+  if (ends([...impAR,...impERIR])) return true;
+
+  if (i>0 && isNeg(tokens[i-1])) return true;
+  if (i>0 && /^(yo|tú|tu|él|ella|usted|nosotros|nosotras|ustedes|ellos|ellas)$/i.test(tokens[i-1])) return true;
+
+  return false;
+}
+
+/* ======= coloring ======= */
+function span(color, text){ return `<span style="color:${color};">${esc(text)}</span>`; }
+
+function colorToken(tokens, i){
+  const tok = tokens[i], low = tok.toLowerCase();
+
+  // HABER (present perfect): color only after 'h'
+  if (HABER.has(low)){
+    const map = { he:["yo","e"], has:["tu","as"], ha:["el","a"], hemos:["nos","emos"], han:["ellos","an"] };
+    const [who, part] = map[low];
+    const idx = low.lastIndexOf(part);
+    return esc(tok.slice(0, idx)) + span(COLORS[who], tok.slice(idx));
+  }
+
+  // ESTAR (progressive): 'estoy' => only 'oy'; others per person marker
+  if (ESTAR.has(low)){
+    if (low==="estoy"){
+      const idx = low.lastIndexOf("oy");
+      return esc(tok.slice(0, idx)) + span(COLORS.yo, tok.slice(idx));
+    }
+    if (low.endsWith("ás"))  return esc(tok.slice(0,-1)) + span(COLORS.tu, tok.slice(-1));   // tú: only s
+    if (low.endsWith("á"))   return esc(tok.slice(0,-1)) + span(COLORS.el, tok.slice(-1));   // 3rd: thematic vowel
+    if (low.endsWith("amos"))return esc(tok.slice(0,-4)) + span(COLORS.nos, tok.slice(-4));  // -mos
+    if (low.endsWith("án"))  return esc(tok.slice(0,-1)) + span(COLORS.ellos, tok.slice(-1));// -n
+  }
+
+  // IR (ir a): 'voy' => only 'oy'; others per person marker
+  if (IR.has(low)){
+    if (low==="voy"){
+      const idx = low.lastIndexOf("oy");
+      return esc(tok.slice(0, idx)) + span(COLORS.yo, tok.slice(idx));
+    }
+    if (low.endsWith("s"))   return esc(tok.slice(0,-1)) + span(COLORS.tu, tok.slice(-1));
+    if (low.endsWith("a"))   return esc(tok.slice(0,-1)) + span(COLORS.el, tok.slice(-1));
+    if (low.endsWith("mos")) return esc(tok.slice(0,-3)) + span(COLORS.nos, tok.slice(-3));
+    if (low.endsWith("n"))   return esc(tok.slice(0,-1)) + span(COLORS.ellos, tok.slice(-1));
+  }
+
+  // Future / Conditional (inf + ending)
+  const futc = [
+    ["íamos","nos"],["remos","nos"],["ríamos","nos"],
+    ["ían","ellos"],["rán","ellos"],
+    ["ías","tu"],["rás","tu"],
+    ["ía","shared"],["rá","el"],["é","yo"],["á","el"]
+  ];
+  for (const [end, who] of futc){
+    if (low.endsWith(end)){
+      const base = low.slice(0,-end.length);
+      if (base.endsWith("ar")||base.endsWith("er")||base.endsWith("ir")){
+        return esc(tok.slice(0,-end.length)) + span(COLORS[who==="shared"?"shared":who], tok.slice(-end.length));
+      }
+    }
+  }
+
+  // Imperfect
+  if (low.endsWith("ábamos")) return esc(tok.slice(0,-4)) + span(COLORS.nos, tok.slice(-4));
+  if (low.endsWith("íamos"))  return esc(tok.slice(0,-4)) + span(COLORS.nos, tok.slice(-4));
+  if (low.endsWith("aban"))   return esc(tok.slice(0,-2)) + span(COLORS.ellos, tok.slice(-2));
+  if (low.endsWith("ían"))    return esc(tok.slice(0,-2)) + span(COLORS.ellos, tok.slice(-2));
+  if (low.endsWith("abas")||low.endsWith("ías")) return esc(tok.slice(0,-2)) + span(COLORS.tu, tok.slice(-2));
+  if (low.endsWith("aba"))    return esc(tok.slice(0,-3)) + span(COLORS.shared, tok.slice(-3));
+  if (low.endsWith("ía"))     return esc(tok.slice(0,-2)) + span(COLORS.shared, tok.slice(-2));
+
+  // Preterite (regular)
+  if (low.endsWith("é"))                     return esc(tok.slice(0,-1)) + span(COLORS.yo, tok.slice(-1));
+  if (low.endsWith("aste")||low.endsWith("iste")) return esc(tok.slice(0,-4)) + span(COLORS.tu, tok.slice(-4));
+  if (low.endsWith("ó"))                     return esc(tok.slice(0,-1)) + span(COLORS.el, tok.slice(-1));
+  if (low.endsWith("amos")||low.endsWith("imos")) return esc(tok.slice(0,-4)) + span(COLORS.nos, tok.slice(-4));
+  if (low.endsWith("aron")||low.endsWith("ieron")) return esc(tok.slice(0,-3)) + span(COLORS.ellos, tok.slice(-3));
+
+  // Present defaults
+  const pres = [
+    ["amos","nos"],["emos","nos"],["imos","nos"],
+    ["an","ellos"],["en","ellos"],
+    ["as","tu"],["es","tu"],
+    ["a","el"],["e","el"],
+    ["o","yo"],
+  ];
+  for (const [end, who] of pres){
+    if (low.endsWith(end)){
+      if (who==="tu")   return esc(tok.slice(0,-1)) + span(COLORS.tu, tok.slice(-1));
+      if (who==="ellos")return esc(tok.slice(0,-1)) + span(COLORS.ellos, tok.slice(-1));
+      if (who==="nos")  return esc(tok.slice(0,-3)) + span(COLORS.nos, tok.slice(-3));
+      if (who==="el")   return esc(tok.slice(0,-1)) + span(COLORS.el, tok.slice(-1));
+      if (who==="yo")   return esc(tok.slice(0,-1)) + span(COLORS.yo, tok.slice(-1));
+    }
+  }
+
+  return esc(tok);
+}
+
+function colorize(text){
+  const toks = tokenize(text);
+  const out = [];
+  for (let i=0;i<toks.length;i++){
+    const t = toks[i];
+    if (isWord(t) && looksLikeFiniteVerb(toks, i)) out.push(colorToken(toks, i));
+    else out.push(esc(t));
+  }
+  return out.join('');
+}
+
+/* ======= UI ======= */
+const input = document.getElementById('in');
+const out = document.getElementById('out');
+
+document.getElementById('run').addEventListener('click', ()=>{
+  out.innerHTML = colorize(input.value);
+});
+
+document.getElementById('download').addEventListener('click', ()=>{
+  const html = `<!doctype html><meta charset="utf-8"><title>Colorized</title><div style="font-family:serif; font-size:18px; line-height:1.75">${colorize(input.value)}</div>`;
+  const blob = new Blob([html], {type:'text/html;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'colorized.html';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+// starter example
+input.value = "Yo hablo español. Tú hablas bien. Ella habla ahora. Nosotros hablamos poco. Ustedes hablan mucho.\nVoy a hablar; estoy hablando. Vas a comer; Están leyendo.\nHe comido; Has vivido; Ha hablado; Hemos pensado; Han dormido.\nAyer hablé, hablaste, habló, hablamos, hablaron. Antes, hablaba y comía; tú vivías; nosotros vivíamos; ellos vivían.\nEl camino es largo, pero yo camino rápido.";
+out.innerHTML = colorize(input.value);
+</script>
+</body>
+</html>
