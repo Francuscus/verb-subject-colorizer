@@ -6,14 +6,21 @@ import re, html, sys
 from typing import List, Dict
 import spacy
 
-# Load Spanish model (small, fast model)
-try:
-    nlp = spacy.load("es_core_news_sm")
-except OSError:
-    print("Downloading Spanish model...", file=sys.stderr)
-    import subprocess
-    subprocess.run([sys.executable, "-m", "spacy", "download", "es_core_news_sm"])
-    nlp = spacy.load("es_core_news_sm")
+# Global variable for lazy loading
+_nlp = None
+
+def get_nlp():
+    """Lazy load spaCy model on first use."""
+    global _nlp
+    if _nlp is None:
+        try:
+            _nlp = spacy.load("es_core_news_sm")
+        except OSError:
+            print("Downloading Spanish model...", file=sys.stderr)
+            import subprocess
+            subprocess.run([sys.executable, "-m", "spacy", "download", "es_core_news_sm"])
+            _nlp = spacy.load("es_core_news_sm")
+    return _nlp
 
 COLORS = {
     "yo": "red",
@@ -70,7 +77,7 @@ def is_verb_token(tokens: List[str], i: int, pos_tags: Dict[str, str]) -> bool:
         return False
 
     # Exclude gerunds (-ando, -iendo)
-    if low.endswith(("ando", "iendo", "yending")) and len(low) > 4:
+    if low.endswith(("ando", "iendo", "yendo")) and len(low) > 4:
         return False
 
     return True
@@ -193,7 +200,8 @@ def colorize_text(text: str) -> str:
     Uses spaCy to accurately identify verbs (not nouns, adverbs, etc.)
     and colors only the person-marking endings in finite verbs.
     """
-    # Use spaCy to get POS tags for all words
+    # Use spaCy to get POS tags for all words (lazy load on first call)
+    nlp = get_nlp()
     doc = nlp(text)
     pos_tags = {}
     for token in doc:
