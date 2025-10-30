@@ -114,7 +114,7 @@ with gr.Blocks(title="Paco Verb Colorizer - Spanish Grammar Tool") as demo:
     - **él/ella/Ud.**: -a, -e, -ó (thematic vowel)
     - **nosotros**: -mos
     - **ellos/ellas/Uds.**: -n
-    - **shared**: -aba, -ía (could be yo OR él/ella)
+    - **shared (orange)**: -aba, -ía (imperfect yo/él), -ría (conditional yo/él), subjunctive yo/él
 
     **Special Cases:**
     - *haber*: Colors entire auxiliary (he, has, ha, hemos, han)
@@ -144,4 +144,3 @@ with gr.Blocks(title="Paco Verb Colorizer - Spanish Grammar Tool") as demo:
 # Launch the app
 if __name__ == "__main__":
     demo.launch()
-
