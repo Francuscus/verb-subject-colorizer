@@ -1,9 +1,57 @@
-# Paco Verb Colorizer
+# Paco Verb Colorizer - AI-Enhanced Version
 # Usage: python paco_colorizer.py < input.txt > output.html
 # Or import colorize_text(text) to get HTML with colored verb endings.
 
 import re, html, sys
-from typing import List
+from typing import List, Dict
+import spacy
+
+# Global variable for lazy loading
+_nlp = None
+
+def get_nlp():
+    """Lazy load spaCy model on first use."""
+    global _nlp
+    if _nlp is None:
+        try:
+            _nlp = spacy.load("es_core_news_sm")
+        except OSError:
+            print("Downloading Spanish model...", file=sys.stderr)
+            import subprocess
+            subprocess.run([sys.executable, "-m", "spacy", "download", "es_core_news_sm"])
+            _nlp = spacy.load("es_core_news_sm")
+    return _nlp
+The key difference:
+
+❌ OLD (what's on GitHub now): Loads spaCy when file is imported → TIMES OUT
+✅ NEW (what you need): Loads spaCy only when get_nlp() is called → Starts fast
+Please replace the entire paco_colorizer.py on GitHub with the complete lazy-loading version I gave you earlier (234 lines). That's why it's failing!
+oh, maybe I am copying and pasting the wrong one. Give it to me again.
+Here's the COMPLETE paco_colorizer.py with lazy loading (234 lines):
+
+# Paco Verb Colorizer - AI-Enhanced Version
+# Usage: python paco_colorizer.py < input.txt > output.html
+# Or import colorize_text(text) to get HTML with colored verb endings.
+
+import re, html, sys
+from typing import List, Dict
+import spacy
+
+# Global variable for lazy loading
+_nlp = None
+
+def get_nlp():
+    """Lazy load spaCy model on first use."""
+    global _nlp
+    if _nlp is None:
+        try:
+            _nlp = spacy.load("es_core_news_sm")
+        except OSError:
+            print("Downloading Spanish model...", file=sys.stderr)
+            import subprocess
+            subprocess.run([sys.executable, "-m", "spacy", "download", "es_core_news_sm"])
+            _nlp = spacy.load("es_core_news_sm")
+    return _nlp
 
 COLORS = {
     "yo": "red",
@@ -14,87 +62,72 @@ COLORS = {
     "shared": "orange",
 }
 
-DETS = {
-    "el","la","los","las","lo","un","una","unos","unas",
-    "este","esta","estos","estas","ese","esa","esos","esas",
-    "aquel","aquella","aquellos","aquellas",
-    "mi","mis","tu","tus","su","sus","nuestro","nuestra","nuestros","nuestras",
-    "al","del"
-}
-
 ESTAR = ["estoy","estas","estás","esta","está","estamos","estan","están"]
 IR = ["voy","vas","va","vamos","van"]
 HABER = ["he","has","ha","hemos","han"]
 
-def is_determiner(tok: str) -> bool:
-    return tok.lower() in DETS
-
-def is_negation(tok: str) -> bool:
-    return tok.lower() in {"no","nunca","jamás"}
-
 def tokenize(text: str):
     return re.findall(r"\w+|[^\w\s]", text, flags=re.UNICODE)
 
-def is_verb_token(tokens: List[str], i: int) -> bool:
+def is_verb_token(tokens: List[str], i: int, pos_tags: Dict[str, str]) -> bool:
+    """
+    Use spaCy POS tagging to accurately identify finite verbs.
+    Excludes: infinitives, participles, gerunds, nouns, adverbs.
+    """
     tok = tokens[i]
     low = tok.lower()
+
+    # Special cases (auxiliary verbs) - always color
     if low in ESTAR or low in IR or low in HABER:
         return True
+
+    # Check if it's alphanumeric
     if not re.fullmatch(r"[^\W\d_]+", low, flags=re.UNICODE):
         return False
-    if i-1 >= 0 and is_determiner(tokens[i-1]):
+
+    # Get POS tag from spaCy
+    pos = pos_tags.get(low, "")
+
+    # Only color if spaCy identifies it as a VERB or AUX (auxiliary)
+    if pos not in ("VERB", "AUX"):
         return False
 
-    endings_present_ar = ("o","as","a","amos","an")
-    endings_present_er = ("o","es","e","emos","en")
-    endings_present_ir = ("o","es","e","imos","en")
-    endings_pret_ar = ("é","aste","ó","amos","aron")
-    endings_pret_erir = ("í","iste","ió","imos","ieron")
-    endings_imp_ar = ("aba","abas","aba","ábamos","aban")
-    endings_imp_erir = ("ía","ías","ía","íamos","ían")
-    future_end = ("é","ás","á","emos","án")
-    cond_end = ("ía","ías","ía","íamos","ían")
+    # Exclude infinitives (-ar, -er, -ir endings without conjugation)
+    if low.endswith(("ar", "er", "ir")) and len(low) > 2:
+        # Check if it's a true infinitive or a conjugated form
+        # True infinitives: hablar, comer, vivir
+        # Conjugated: llegar → llegué (not infinitive)
+        if not any(low.endswith(ending) for ending in [
+            "é", "ás", "á", "emos", "éis", "án",  # future
+            "ía", "ías", "íamos", "íais", "ían"   # conditional
+        ]):
+            return False
 
-    # Future/Conditional: infinitive + ending
-    if any(low.endswith(e) for e in future_end + cond_end):
-        for end in sorted(set(future_end+cond_end), key=len, reverse=True):
-            if low.endswith(end):
-                base = low[:-len(end)]
-                if base.endswith(("ar","er","ir")):
-                    return True
+    # Exclude participles (-ado, -ido) - these don't carry person marking
+    if low.endswith(("ado", "ido", "ído")) and len(low) > 3:
+        return False
 
-    # Present
-    if any(low.endswith(e) for e in endings_present_ar + endings_present_er + endings_present_ir):
-        if i-1 >= 0 and (is_negation(tokens[i-1]) or re.fullmatch(r"(yo|t[úu]|él|ella|usted|nosotros|nosotras|ustedes|ellos|ellas)", tokens[i-1].lower())):
-            return True
-        return True
+    # Exclude gerunds (-ando, -iendo)
+    if low.endswith(("ando", "iendo", "yendo")) and len(low) > 4:
+        return False
 
-    # Preterite
-    if any(low.endswith(e) for e in endings_pret_ar + endings_pret_erir):
-        return True
-
-    # Imperfect
-    if any(low.endswith(e) for e in endings_imp_ar + endings_imp_erir):
-        return True
-
-    return False
+    return True
 
 def color_token(tokens: List[str], i: int) -> str:
     tok = tokens[i]
     low = tok.lower()
 
-    # Present perfect (haber): color only after silent 'h'
+    # Present perfect (haber): color the entire auxiliary verb
     if low in HABER:
         mapping = {
-            "he": ("yo","e"),
-            "has": ("tu","as"),
-            "ha": ("el","a"),
-            "hemos": ("nos","emos"),
-            "han": ("ellos","an"),
+            "he": "yo",
+            "has": "tu",
+            "ha": "el",
+            "hemos": "nos",
+            "han": "ellos",
         }
-        who, part = mapping[low]
-        idx = tok.lower().rfind(part)
-        return html.escape(tok[:idx]) + f"<span style='color:{COLORS[who]};'>" + html.escape(tok[idx:]) + "</span>"
+        who = mapping[low]
+        return f"<span style='color:{COLORS[who]};'>" + html.escape(tok) + "</span>"
 
     # Progressive (estar + gerund): yo => only 'oy' in 'estoy'; others => person marker
     if low in ESTAR:
@@ -141,18 +174,21 @@ def color_token(tokens: List[str], i: int) -> str:
 
     # Imperfect
     if low.endswith("ábamos"):
-        return html.escape(tok[:-4]) + f"<span style='color:{COLORS['nos']};'>" + html.escape(tok[-4:]) + "</span>"
+        return html.escape(tok[:-6]) + f"<span style='color:{COLORS['nos']};'>" + html.escape(tok[-6:]) + "</span>"
     if low.endswith("íamos"):
-        return html.escape(tok[:-4]) + f"<span style='color:{COLORS['nos']};'>" + html.escape(tok[-4:]) + "</span>"
+        return html.escape(tok[:-5]) + f"<span style='color:{COLORS['nos']};'>" + html.escape(tok[-5:]) + "</span>"
     if low.endswith("aban"):
-        return html.escape(tok[:-2]) + f"<span style='color:{COLORS['ellos']};'>" + html.escape(tok[-2:]) + "</span>"
+        return html.escape(tok[:-4]) + f"<span style='color:{COLORS['ellos']};'>" + html.escape(tok[-4:]) + "</span>"
     if low.endswith("ían"):
-        return html.escape(tok[:-2]) + f"<span style='color:{COLORS['ellos']};'>" + html.escape(tok[-2:]) + "</span>"
-    if low.endswith("abas") or low.endswith("ías"):
-        return html.escape(tok[:-2]) + f"<span style='color:{COLORS['tu']};'>" + html.escape(tok[-2:]) + "</span>"
-    if low.endswith("aba") or low.endswith("ía"):
-        idx = len(tok) - (3 if low.endswith("aba") else 2)
-        return html.escape(tok[:idx]) + f"<span style='color:{COLORS['shared']};'>" + html.escape(tok[idx:]) + "</span>"
+        return html.escape(tok[:-3]) + f"<span style='color:{COLORS['ellos']};'>" + html.escape(tok[-3:]) + "</span>"
+    if low.endswith("abas"):
+        return html.escape(tok[:-4]) + f"<span style='color:{COLORS['tu']};'>" + html.escape(tok[-4:]) + "</span>"
+    if low.endswith("ías"):
+        return html.escape(tok[:-3]) + f"<span style='color:{COLORS['tu']};'>" + html.escape(tok[-3:]) + "</span>"
+    if low.endswith("aba"):
+        return html.escape(tok[:-3]) + f"<span style='color:{COLORS['shared']};'>" + html.escape(tok[-3:]) + "</span>"
+    if low.endswith("ía"):
+        return html.escape(tok[:-2]) + f"<span style='color:{COLORS['shared']};'>" + html.escape(tok[-2:]) + "</span>"
 
     # Preterite (regular)
     if low.endswith("é"):
@@ -189,10 +225,22 @@ def color_token(tokens: List[str], i: int) -> str:
     return html.escape(tok)
 
 def colorize_text(text: str) -> str:
+    """
+    Colorize Spanish verb endings using AI-powered POS tagging.
+    Uses spaCy to accurately identify verbs (not nouns, adverbs, etc.)
+    and colors only the person-marking endings in finite verbs.
+    """
+    # Use spaCy to get POS tags for all words (lazy load on first call)
+    nlp = get_nlp()
+    doc = nlp(text)
+    pos_tags = {}
+    for token in doc:
+        pos_tags[token.text.lower()] = token.pos_
+
     tokens = tokenize(text)
     out = []
     for i, tok in enumerate(tokens):
-        if re.fullmatch(r"\w+", tok, flags=re.UNICODE) and is_verb_token(tokens, i):
+        if re.fullmatch(r"\w+", tok, flags=re.UNICODE) and is_verb_token(tokens, i, pos_tags):
             out.append(color_token(tokens, i))
         else:
             out.append(html.escape(tok))
