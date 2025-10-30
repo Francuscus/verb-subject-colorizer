@@ -1,19 +1,9 @@
-# Paco Verb Colorizer - AI-Enhanced Version
+# Paco Verb Colorizer
 # Usage: python paco_colorizer.py < input.txt > output.html
 # Or import colorize_text(text) to get HTML with colored verb endings.
 
 import re, html, sys
-from typing import List, Dict
-import spacy
-
-# Load Spanish model (small, fast model)
-try:
-    nlp = spacy.load("es_core_news_sm")
-except OSError:
-    print("Downloading Spanish model...", file=sys.stderr)
-    import subprocess
-    subprocess.run([sys.executable, "-m", "spacy", "download", "es_core_news_sm"])
-    nlp = spacy.load("es_core_news_sm")
+from typing import List
 
 COLORS = {
     "yo": "red",
@@ -24,56 +14,70 @@ COLORS = {
     "shared": "orange",
 }
 
+DETS = {
+    "el","la","los","las","lo","un","una","unos","unas",
+    "este","esta","estos","estas","ese","esa","esos","esas",
+    "aquel","aquella","aquellos","aquellas",
+    "mi","mis","tu","tus","su","sus","nuestro","nuestra","nuestros","nuestras",
+    "al","del"
+}
+
 ESTAR = ["estoy","estas","estás","esta","está","estamos","estan","están"]
 IR = ["voy","vas","va","vamos","van"]
 HABER = ["he","has","ha","hemos","han"]
 
+def is_determiner(tok: str) -> bool:
+    return tok.lower() in DETS
+
+def is_negation(tok: str) -> bool:
+    return tok.lower() in {"no","nunca","jamás"}
+
 def tokenize(text: str):
     return re.findall(r"\w+|[^\w\s]", text, flags=re.UNICODE)
 
-def is_verb_token(tokens: List[str], i: int, pos_tags: Dict[str, str]) -> bool:
-    """
-    Use spaCy POS tagging to accurately identify finite verbs.
-    Excludes: infinitives, participles, gerunds, nouns, adverbs.
-    """
+def is_verb_token(tokens: List[str], i: int) -> bool:
     tok = tokens[i]
     low = tok.lower()
-
-    # Special cases (auxiliary verbs) - always color
     if low in ESTAR or low in IR or low in HABER:
         return True
-
-    # Check if it's alphanumeric
     if not re.fullmatch(r"[^\W\d_]+", low, flags=re.UNICODE):
         return False
-
-    # Get POS tag from spaCy
-    pos = pos_tags.get(low, "")
-
-    # Only color if spaCy identifies it as a VERB or AUX (auxiliary)
-    if pos not in ("VERB", "AUX"):
+    if i-1 >= 0 and is_determiner(tokens[i-1]):
         return False
 
-    # Exclude infinitives (-ar, -er, -ir endings without conjugation)
-    if low.endswith(("ar", "er", "ir")) and len(low) > 2:
-        # Check if it's a true infinitive or a conjugated form
-        # True infinitives: hablar, comer, vivir
-        # Conjugated: llegar → llegué (not infinitive)
-        if not any(low.endswith(ending) for ending in [
-            "é", "ás", "á", "emos", "éis", "án",  # future
-            "ía", "ías", "íamos", "íais", "ían"   # conditional
-        ]):
-            return False
+    endings_present_ar = ("o","as","a","amos","an")
+    endings_present_er = ("o","es","e","emos","en")
+    endings_present_ir = ("o","es","e","imos","en")
+    endings_pret_ar = ("é","aste","ó","amos","aron")
+    endings_pret_erir = ("í","iste","ió","imos","ieron")
+    endings_imp_ar = ("aba","abas","aba","ábamos","aban")
+    endings_imp_erir = ("ía","ías","ía","íamos","ían")
+    future_end = ("é","ás","á","emos","án")
+    cond_end = ("ía","ías","ía","íamos","ían")
 
-    # Exclude participles (-ado, -ido) - these don't carry person marking
-    if low.endswith(("ado", "ido", "ído")) and len(low) > 3:
-        return False
+    # Future/Conditional: infinitive + ending
+    if any(low.endswith(e) for e in future_end + cond_end):
+        for end in sorted(set(future_end+cond_end), key=len, reverse=True):
+            if low.endswith(end):
+                base = low[:-len(end)]
+                if base.endswith(("ar","er","ir")):
+                    return True
 
-    # Exclude gerunds (-ando, -iendo)
-    if low.endswith(("ando", "iendo", "yendo")) and len(low) > 4:
-        return False
+    # Present
+    if any(low.endswith(e) for e in endings_present_ar + endings_present_er + endings_present_ir):
+        if i-1 >= 0 and (is_negation(tokens[i-1]) or re.fullmatch(r"(yo|t[úu]|él|ella|usted|nosotros|nosotras|ustedes|ellos|ellas)", tokens[i-1].lower())):
+            return True
+        return True
 
-    return True
+    # Preterite
+    if any(low.endswith(e) for e in endings_pret_ar + endings_pret_erir):
+        return True
+
+    # Imperfect
+    if any(low.endswith(e) for e in endings_imp_ar + endings_imp_erir):
+        return True
+
+    return False
 
 def color_token(tokens: List[str], i: int) -> str:
     tok = tokens[i]
@@ -185,22 +189,10 @@ def color_token(tokens: List[str], i: int) -> str:
     return html.escape(tok)
 
 def colorize_text(text: str) -> str:
-    """
-    Colorize Spanish verb endings using AI-powered POS tagging.
-
-    Uses spaCy to accurately identify verbs (not nouns, adverbs, etc.)
-    and colors only the person-marking endings in finite verbs.
-    """
-    # Use spaCy to get POS tags for all words
-    doc = nlp(text)
-    pos_tags = {}
-    for token in doc:
-        pos_tags[token.text.lower()] = token.pos_
-
     tokens = tokenize(text)
     out = []
     for i, tok in enumerate(tokens):
-        if re.fullmatch(r"\w+", tok, flags=re.UNICODE) and is_verb_token(tokens, i, pos_tags):
+        if re.fullmatch(r"\w+", tok, flags=re.UNICODE) and is_verb_token(tokens, i):
             out.append(color_token(tokens, i))
         else:
             out.append(html.escape(tok))
