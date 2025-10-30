@@ -105,8 +105,8 @@ with gr.Blocks(title="Paco Verb Colorizer - Spanish Grammar Tool") as demo:
     ### 📚 How It Works
 
     **Verb Detection:**
-    - Uses AI-powered POS tagging (spaCy) to accurately identify verbs
-    - Filters out: nouns after articles ("el canto"), adverbs ("-mente"), infinitives, participles, gerunds
+    - Uses AI-powered morphological analysis (spaCy) to accurately identify verbs
+    - Filters out: nouns after articles ("el canto"), infinitives, participles, gerunds
 
     **Person Markers Colored:**
     - **yo**: -o, -é, -aba, -ía (when unambiguous)
@@ -117,12 +117,14 @@ with gr.Blocks(title="Paco Verb Colorizer - Spanish Grammar Tool") as demo:
     - **shared**: -aba, -ía (could be yo OR él/ella)
 
     **Special Cases:**
-    - *haber*: Colors the entire auxiliary (he, has, ha, hemos, han)
+    - *haber*: Colors entire auxiliary (he, has, ha, hemos, han)
     - *estar*: est**oy**, est**ás**, est**á**
     - *ir*: v**oy**, v**as**, v**a**
+    - **Irregular verbs**: tendrá, vendrá (AI recognizes them)
+    - **Reflexive infinitives**: levantarse (NOT colored)
 
     ---
-    Created with ❤️ using Paco's Grammar methodology + AI-powered verb detection.
+    Created with ❤️ using Paco's Grammar + AI-powered verb detection.
     """)
 
     # Connect button to function
@@ -142,3 +144,4 @@ with gr.Blocks(title="Paco Verb Colorizer - Spanish Grammar Tool") as demo:
 # Launch the app
 if __name__ == "__main__":
     demo.launch()
+
